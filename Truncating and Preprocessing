@@ -1,0 +1,102 @@
+import pandas as pd
+import numpy as np
+import glob
+import os
+from sklearn.preprocessing import StandardScaler
+import pywt
+import matplotlib.pyplot as plt
+
+# === User settings ===
+input_folder = r"C:\Users\Joseph Nguyen\Python Testing\Data\CSVs"
+output_folder = r"C:\Users\Joseph Nguyen\Python Testing\Data\DWT_DB4_Level1"
+
+csv_folder = os.path.join(output_folder, "CSV")
+npy_folder = os.path.join(output_folder, "NPY")
+os.makedirs(csv_folder, exist_ok=True)
+os.makedirs(npy_folder, exist_ok=True)
+
+feature_columns = [
+    'Time (s)',
+    'A4 12KV BUS SEC A GFN 1 ZERO SEQ VOLTAGE (3V0) Vn',
+    'A8 12KV BUS SEC C GFN 2 ZERO SEQ VOLTAGE (3V0) Vn',
+    'A59 DEALER 12KV GFN ZERO SEQ AMPS 500:5 FULL SCALE: 3 In',
+    'A63 LOTTO 12KV GFN ZERO SEQ AMPS 500:5 FULL SCALE: 3 In',
+    'A64 KENO 12KV GFN ZERO SEQ AMPS 500:5 FULL SCALE: 3 In',
+    'A68 GAMBLER 12KV GFN ZERO SEQ AMPS 500:5 FULL SCALE: 3 In'
+]
+
+def normalize(signal):
+    min_val, max_val = np.min(signal), np.max(signal)
+    if max_val - min_val == 0:
+        return signal
+    return 2 * (signal - min_val) / (max_val - min_val) - 1
+
+def apply_wavelet_transform(data, columns, wavelet='db4', level=1):
+    wavelet_features = []
+    for col in columns:
+        if col not in data.columns:
+            continue
+        signal = normalize(data[col].values)
+        coeffs = pywt.wavedec(signal, wavelet=wavelet, level=level)
+        wavelet_coeffs = np.concatenate(coeffs)
+        # Ensure length matches original column
+        desired_length = len(signal)
+        if len(wavelet_coeffs) < desired_length:
+            wavelet_coeffs = np.pad(wavelet_coeffs, (0, desired_length - len(wavelet_coeffs)), 'constant')
+        elif len(wavelet_coeffs) > desired_length:
+            wavelet_coeffs = wavelet_coeffs[:desired_length]
+        wavelet_features.append(wavelet_coeffs)
+    return np.stack(wavelet_features, axis=1)
+
+# === Process each CSV individually ===
+csv_files = glob.glob(os.path.join(input_folder, "*.csv"))
+
+for file in csv_files:
+    df = pd.read_csv(file)
+    
+    # Truncate: take second half of rows
+    half_rows = len(df) // 2
+    df_trunc = df.iloc[half_rows:]
+    
+    df_features = df_trunc[feature_columns]
+
+    # Apply DWT
+    X_wavelet = apply_wavelet_transform(df_features, feature_columns)
+
+    # Scale for NN
+    scaler = StandardScaler()
+    X_wavelet_scaled = scaler.fit_transform(X_wavelet)
+
+    # Reshape for NN input
+    X_wavelet_reshaped = X_wavelet_scaled.reshape(X_wavelet_scaled.shape[0], 1, X_wavelet_scaled.shape[1])
+
+    # Save .npy
+    base_name = os.path.splitext(os.path.basename(file))[0]
+    npy_file = os.path.join(npy_folder, base_name + "_dwt_level1.npy")
+    np.save(npy_file, X_wavelet_reshaped)
+
+    # Save CSV for inspection
+    csv_file = os.path.join(csv_folder, base_name + "_dwt_level1.csv")
+    pd.DataFrame(X_wavelet_scaled, columns=[f"{col}_coef" for col in feature_columns]).to_csv(csv_file, index=False)
+
+    print(f"Processed {file} -> {npy_file} & {csv_file}")
+    """
+    # === Optional plotting for verification ===
+    for col in feature_columns[1:]:  # skip Time column
+        if col not in df_features.columns:
+            continue
+        signal = normalize(df_features[col].values)
+        coeffs = pywt.wavedec(signal, wavelet='db4', level=1)
+        cA, cD = coeffs
+
+        plt.figure(figsize=(12, 4))
+        plt.plot(signal, label='Normalized Original')
+        plt.plot(cA, label='Approximation (cA)')
+        plt.plot(cD, label='Detail (cD)')
+        plt.title(f"{base_name} - {col}")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+        """
+
+print("All CSVs processed individually, truncated, DWT applied, saved both .npy and .csv, and plots displayed.")

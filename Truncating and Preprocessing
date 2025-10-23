@@ -72,12 +72,13 @@ for file in csv_files:
 
     # Save .npy
     base_name = os.path.splitext(os.path.basename(file))[0]
-    npy_file = os.path.join(npy_folder, base_name + "_dwt_level1.npy")
+    npy_file = os.path.join(npy_folder, base_name + "_w_db4_1.npy")
     np.save(npy_file, X_wavelet_reshaped)
 
     # Save CSV for inspection
-    csv_file = os.path.join(csv_folder, base_name + "_dwt_level1.csv")
+    csv_file = os.path.join(csv_folder, base_name + "_w_db4_1.csv")
     pd.DataFrame(X_wavelet_scaled, columns=[f"{col}_coef" for col in feature_columns]).to_csv(csv_file, index=False)
+
 
     print(f"Processed {file} -> {npy_file} & {csv_file}")
     """
